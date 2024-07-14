@@ -2421,6 +2421,12 @@ class ShapeEnv:
             [ShapeEnvEvent(ShapeEnv, kwargs=kwargs)] if self.should_record_events else []
         )
 
+        # FakeTensor per-ShapeEnv operation cache. This is used for caching
+        # operations that contain symbolic shapes which have guards on the
+        # ShapeEnv (so are ShapeEnv-dependent).
+        self.fake_tensor_cache: Dict[torch._subclasses.fake_tensor._DispatchCacheKey,
+                                     torch._subclasses.fake_tensor._DispatchCacheEntry] = {}
+
     # Pro-tip: if you add new field to ShapeEnv, this affects some accept
     # tests.  Accept their output with:
     #
@@ -2718,7 +2724,7 @@ class ShapeEnv:
             elif key == "name_to_node":
                 # Compare just the set of keys is the same.
                 return set(value.keys())
-            elif key in ["symbol_guard_counter", "pending_fresh_unbacked_symbols"]:
+            elif key in ("symbol_guard_counter", "pending_fresh_unbacked_symbols", "fake_tensor_cache"):
                 # Skip this for comparisons
                 return None
             return value
