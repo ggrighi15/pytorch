@@ -1,4 +1,4 @@
-#ifdef TORCH_ENABLE_LLVM
+  #ifdef TORCH_ENABLE_LLVM
 
 #include <c10/macros/Macros.h>
 
@@ -56,8 +56,12 @@ static llvm::JITTargetAddress toAddress(T* Ptr) {
 // Get subtarget features for the host.
 static llvm::SubtargetFeatures getHostSubtargetFeatures() {
   llvm::SubtargetFeatures subtargetFeatures;
+#if LLVM_VERSION_MAJOR >= 18    
+  const auto featureMap = llvm::sys::getHostCPUFeatures();
+#else
   llvm::StringMap<bool> featureMap;
   llvm::sys::getHostCPUFeatures(featureMap);
+#endif  
   for (auto& feature : featureMap) {
     subtargetFeatures.AddFeature(feature.first(), feature.second);
   }
