@@ -56,28 +56,26 @@ from torch._inductor.codegen.rocm.compile_command import (
     rocm_compile_command,
     rocm_compiler,
 )
-from .cpp_builder import (
-    _get_python_include_dirs,
-    get_cpp_compiler,
-    homebrew_libomp,
-    is_apple_clang,
-    is_clang,
-    is_conda_llvm_openmp_installed,
-)
 
 """
 codecache.py, cpp_builder.py and cpu_vec_isa.py import rule:
 https://github.com/pytorch/pytorch/issues/124245#issuecomment-2197778902
 """
 from torch._inductor.cpp_builder import (
+    _get_python_include_dirs,
     _set_gpu_runtime_env,
     _transform_cuda_paths,
+    adapte_file_path,
     CppBuilder,
     CppOptions,
     CppTorchCudaOptions,
     get_compiler_version_info,
+    get_cpp_compiler,
     get_name_and_dir_from_output_file_path,
-    adapte_file_path,
+    homebrew_libomp,
+    is_apple_clang,
+    is_clang,
+    is_conda_llvm_openmp_installed,
 )
 from torch._inductor.cpu_vec_isa import invalid_vec_isa, pick_vec_isa, VecISA
 from torch._inductor.runtime.compile_tasks import (
