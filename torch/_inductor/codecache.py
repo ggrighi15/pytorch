@@ -77,6 +77,7 @@ from torch._inductor.cpp_builder import (
     CppTorchCudaOptions,
     get_compiler_version_info,
     get_name_and_dir_from_output_file_path,
+    adapte_file_path,
 )
 from torch._inductor.cpu_vec_isa import invalid_vec_isa, pick_vec_isa, VecISA
 from torch._inductor.runtime.compile_tasks import (
@@ -1931,7 +1932,7 @@ def cpp_prefix_path() -> str:
             content,
             "h",
         )
-    return filename
+    return adapte_file_path(filename)
 
 
 def cpp_prefix() -> str:
@@ -2118,7 +2119,7 @@ class CppCodeCache:
                 fb_output_path,
             )
 
-            binary_path = (
+            binary_path = adapte_file_path(
                 fb_output_path
                 if config.is_fbcode()
                 else cpp_builder.get_target_file_path()
