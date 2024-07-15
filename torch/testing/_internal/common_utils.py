@@ -1085,6 +1085,9 @@ def get_pytest_test_cases(argv: List[str]) -> List[str]:
 
 
 def run_tests(argv=UNITTEST_ARGS):
+    if "--verbose" in argv:
+        argv = [argv[0], ("--showlocals" if USE_PYTEST else "--locals"), *argv[1:]]
+
     # import test files.
     if SLOW_TESTS_FILE:
         if os.path.exists(SLOW_TESTS_FILE):

@@ -410,6 +410,7 @@ def run_test(
 
     if options.verbose:
         unittest_args.append(f'-{"v" * options.verbose}')  # in case of pytest
+        unittest_args.append("--locals")
 
     if test_file in RUN_PARALLEL_BLOCKLIST:
         unittest_args = [
@@ -430,7 +431,8 @@ def run_test(
             )
         )
         unittest_args.extend(test_module.get_pytest_args())
-        unittest_args = [arg if arg != "-f" else "-x" for arg in unittest_args]
+        replacement = {"-f": "-x", "--locals": "--showlocals"}
+        unittest_args = [replacement.get(arg, arg) for arg in unittest_args]
 
     # NB: These features are not available for C++ tests, but there is little incentive
     # to implement it because we have never seen a flaky C++ test before.
