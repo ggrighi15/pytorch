@@ -244,7 +244,7 @@ def run_command_line(cmd_line, cwd=None):
     return status
 
 
-def adapte_file_path(orig_path: str) -> str:
+def normalize_path_separator(orig_path: str) -> str:
     if _IS_WINDOWS:
         return orig_path.replace("\\", "/")
     return orig_path
@@ -1225,7 +1225,7 @@ class CppBuilder:
                     f"{compiler} {include_dirs_args} {definations_args} {cflags_args} {sources} "
                     f"{passthougn_args} /LD /Fe{target_file} /link {libraries_dirs_args} {libraries_args} {ldflags_args} "
                 )
-                cmd = adapte_file_path(cmd)
+                cmd = normalize_path_separator(cmd)
             else:
                 compile_only_arg = "-c" if self._compile_only else ""
                 cmd = re.sub(
@@ -1253,7 +1253,7 @@ class CppBuilder:
         return command_line
 
     def get_target_file_path(self):
-        return adapte_file_path(self._target_file)
+        return normalize_path_separator(self._target_file)
 
     def build(self) -> Tuple[int, str]:
         """

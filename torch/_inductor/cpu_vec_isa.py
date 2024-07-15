@@ -90,9 +90,9 @@ cdll.LoadLibrary("__lib_path__")
     def check_build(self, code: str) -> bool:
         from torch._inductor.codecache import get_lock_dir, LOCK_TIMEOUT, write
         from torch._inductor.cpp_builder import (
-            adapte_file_path,
             CppBuilder,
             CppTorchOptions,
+            normalize_path_separator,
         )
 
         key, input_path = write(
@@ -115,7 +115,7 @@ cdll.LoadLibrary("__lib_path__")
             )
             try:
                 # Check if the output file exist, and compile when not.
-                output_path = adapte_file_path(
+                output_path = normalize_path_separator(
                     x86_isa_help_builder.get_target_file_path()
                 )
                 if not os.path.isfile(output_path):
