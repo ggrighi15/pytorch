@@ -24,6 +24,7 @@ from typing import (
     overload,
     Tuple,
     Type,
+    TYPE_CHECKING,
     TypeVar,
     Union,
 )
@@ -32,7 +33,18 @@ from typing_extensions import deprecated
 import optree
 from optree import PyTreeSpec  # direct import for type annotations
 
-from torch.utils._pytree import KeyEntry
+from torch.utils._pytree import (
+    GetAttrKey,
+    key_get,
+    KeyEntry,
+    keystr,
+    MappingKey,
+    SequenceKey,
+)
+
+
+if TYPE_CHECKING:
+    from optree import PyTreeAccessor
 
 
 __all__ = [
@@ -915,6 +927,24 @@ class LeafSpec(TreeSpec, metaclass=LeafSpecMeta):
         return optree.treespec_leaf(none_is_leaf=True)  # type: ignore[return-value]
 
 
+def _accessor_to_key_path(accessor: "PyTreeAccessor") -> KeyPath:
+    key_path: List[KeyEntry] = []
+    for entry in accessor:
+        if isinstance(entry, optree.GetAttrEntry):
+            key_path.append(GetAttrKey(entry.name))
+        elif isinstance(entry, optree.StructSequenceEntry):
+            key_path.append(SequenceKey(entry.index))
+        elif isinstance(entry, optree.NamedTupleEntry):
+            key_path.append(GetAttrKey(entry.field))
+        elif isinstance(entry, optree.SequenceEntry):
+            key_path.append(SequenceKey(entry.index))
+        elif isinstance(entry, optree.MappingEntry):
+            key_path.append(MappingKey(entry.key))
+        else:
+            raise ValueError(f"Unsupported accessor entry: {entry}")
+    return tuple(key_path)
+
+
 def tree_flatten_with_path(
     tree: PyTree,
     is_leaf: Optional[Callable[[PyTree], bool]] = None,
@@ -935,7 +965,13 @@ def tree_flatten_with_path(
         second element is a :class:`TreeSpec` representing the structure of the flattened
         tree.
     """
-    raise NotImplementedError("KeyPaths are not yet supported in cxx_pytree.")
+    accessors, leaves, treespec = optree.tree_flatten_with_accessor(
+        tree,
+        is_leaf=is_leaf,
+        none_is_leaf=True,
+        namespace="torch",
+    )
+    return list(zip(map(_accessor_to_key_path, accessors), leaves)), treespec
 
 
 def tree_leaves_with_path(
@@ -956,7 +992,7 @@ def tree_leaves_with_path(
     Returns:
         A list of (key path, leaf) pairs.
     """
-    raise NotImplementedError("KeyPaths are not yet supported in cxx_pytree.")
+    return tree_flatten_with_path(tree, is_leaf=is_leaf)[0]
 
 
 def tree_map_with_path(
@@ -988,14 +1024,11 @@ def tree_map_with_path(
         corresponding leaf in ``tree``, ``x`` is the value at that leaf, and
         ``xs`` is the tuple of values at corresponding nodes in ``rests``.
     """
-    raise NotImplementedError("KeyPaths are not yet supported in cxx_pytree.")
-
-
-def keystr(kp: KeyPath) -> str:
-    """Given a key path, return a pretty-printed representation."""
-    raise NotImplementedError("KeyPaths are not yet supported in cxx_pytree.")
-
-
-def key_get(obj: Any, kp: KeyPath) -> Any:
-    """Given an object and a key path, return the value at the key path."""
-    raise NotImplementedError("KeyPaths are not yet supported in cxx_pytree.")
+    return optree.tree_map_with_accessor(
+        lambda accessor, *xs: func(_accessor_to_key_path(accessor), *xs),
+        tree,
+        *rests,
+        is_leaf=is_leaf,
+        none_is_leaf=True,
+        namespace="torch",
+    )
