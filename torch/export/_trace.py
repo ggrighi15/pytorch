@@ -96,6 +96,7 @@ class ExportDynamoConfig:
     reorderable_logging_functions: Set[Callable] = dataclasses.field(
         default_factory=set
     )
+    do_not_emit_runtime_asserts = True  # emit runtime asserts after AOTAutograd instead
 
 
 @dataclasses.dataclass
@@ -549,7 +550,7 @@ def _export_to_torch_ir(
                     disable_constraint_solver=disable_constraint_solver,
                     # currently the following 2 flags are tied together for export purposes,
                     # but untangle for sake of dynamo export api
-                    prefer_deferred_runtime_asserts_over_guards=allow_complex_guards_as_runtime_asserts,
+                    prefer_deferred_runtime_asserts_over_guards=True,
                     allow_complex_guards_as_runtime_asserts=allow_complex_guards_as_runtime_asserts,
                     _log_export_usage=_log_export_usage,
                     same_signature=same_signature,
@@ -580,6 +581,7 @@ def _export_to_aten_ir(
     fake_kwargs,
     fake_params_buffers,
     constant_attrs: ConstantAttrMap,
+    produce_guards_callback=None,
     *,
     transform=lambda x: x,  # TODO(zhxchen17) Revisit if this is needed later.
     pre_dispatch=False,
@@ -625,16 +627,22 @@ def _export_to_aten_ir(
     if isinstance(mod, torch.fx.GraphModule) and hasattr(mod, "meta"):
         gm.meta.update(mod.meta)
 
-    # Run this pass before creating input/output specs, since size-related CSE/DCE might affect output signature.
-    # Overwrite output specs afterwards.
-    from torch._dynamo import config as _dynamo_config
     from torch._functorch._aot_autograd.input_output_analysis import _graph_output_names
     from torch._guards import detect_fake_mode
 
+    # Run produce guards before we handle runtime asserts
+    if produce_guards_callback:
+        try:
+            produce_guards_callback(gm)
+        except (ConstraintViolationError, ValueRangeError) as e:
+            raise UserError(UserErrorType.CONSTRAINT_VIOLATION, str(e))  # noqa: B904
+
+    # Run runtime asserts pass before creating input/output specs, since size-related CSE/DCE might affect output signature.
+    # Overwrite output specs afterwards.
     flat_fake_args = pytree.tree_leaves((fake_args, fake_kwargs))
     fake_mode = detect_fake_mode(flat_fake_args)
 
-    if not _dynamo_config.do_not_emit_runtime_asserts:
+    if not torch._dynamo.config.do_not_emit_runtime_asserts:
         stack_trace = (
             'File "torch/fx/passes/runtime_assert.py", line 24, '
             "in insert_deferred_runtime_asserts"
@@ -1440,9 +1448,7 @@ def _export_to_aten_ir_make_fx(
 
     fake_mode = detect_fake_mode(flat_args)
 
-    from torch._dynamo import config as _dynamo_config
-
-    if not _dynamo_config.do_not_emit_runtime_asserts:
+    if not torch._dynamo.config.do_not_emit_runtime_asserts:
         stack_trace = (
             'File "torch/fx/passes/runtime_assert.py", line 24, '
             "in insert_deferred_runtime_asserts"
@@ -1579,6 +1585,17 @@ def _non_strict_export(
 
     fake_params_buffers = make_fake_params_buffers(fake_mode, _get_params_buffers(mod))
 
+    def _produce_guards_callback(gm):
+        return produce_guards_and_solve_constraints(
+            fake_mode=fake_mode,
+            gm=gm,
+            dynamic_shapes=dynamic_shapes,
+            equalities_inputs=equalities_inputs,
+            original_signature=original_signature,
+            _disable_forced_specializations=_disable_forced_specializations,
+            _is_torch_jit_trace=_is_torch_jit_trace,
+        )
+
     with fake_mode:
         with _fakify_script_objects(mod, fake_args, fake_kwargs, fake_mode) as (
             patched_mod,
@@ -1593,6 +1610,7 @@ def _non_strict_export(
                 new_fake_kwargs,
                 fake_params_buffers,
                 new_fake_constant_attrs,
+                produce_guards_callback=_produce_guards_callback,
                 pre_dispatch=pre_dispatch,
                 transform=_tuplify_outputs,
                 _is_torch_jit_trace=_is_torch_jit_trace,
@@ -1602,19 +1620,6 @@ def _non_strict_export(
                 fqn: map_fake_to_real[obj] if isinstance(obj, FakeScriptObject) else obj
                 for fqn, obj in aten_export_artifact.constants.items()
             }
-
-    try:
-        produce_guards_and_solve_constraints(
-            fake_mode,
-            aten_export_artifact.gm,
-            dynamic_shapes,
-            equalities_inputs,
-            original_signature,
-            _disable_forced_specializations=_disable_forced_specializations,
-            _is_torch_jit_trace=_is_torch_jit_trace,
-        )
-    except (ConstraintViolationError, ValueRangeError) as e:
-        raise UserError(UserErrorType.CONSTRAINT_VIOLATION, str(e))  # noqa: B904
 
     _rewrite_non_persistent_buffers(
         mod, aten_export_artifact.sig, aten_export_artifact.constants

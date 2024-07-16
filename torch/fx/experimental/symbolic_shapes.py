@@ -1777,29 +1777,6 @@ class DimConstraints:
         self._static_results.add(f"{self._dcp.symbol_to_source[s][0].name()} == {val}")
         self._substitutions[s] = val
 
-    def _specialize_divisor_symbols(self):
-        for expr in self._multivariate_inequalities:
-            for atom in expr.atoms(FloorDiv, Mod):
-                _, divisor = atom.args
-                for s in divisor.free_symbols:
-                    self._force_specialization(s)
-
-        multivariate_inequalities = self._multivariate_inequalities
-        self._multivariate_inequalities = set()
-        for expr in multivariate_inequalities:
-            self.add(expr.xreplace(self._substitutions))
-        self._raise_inconsistencies()
-        self._univariate_inequalities = {
-            s: exprs
-            for s, exprs in self._univariate_inequalities.items()
-            if s not in self._substitutions
-        }
-        self._congruences = {
-            s: congruences
-            for s, congruences in self._congruences.items()
-            if s not in self._substitutions
-        }
-
     def solve(
         self,
         _disable_forced_specializations=False,
@@ -1832,9 +1809,6 @@ class DimConstraints:
                 self.add(expr.xreplace({s: self._substitutions[s]}))
             self._raise_inconsistencies()
 
-        if not _disable_forced_specializations:
-            self._specialize_divisor_symbols()
-
         # solve linear congruences
         # NOTE(avik): We do not need to solve them for symbols that have already been specialized.
         reduced_congruences = self._reduce_congruences()
@@ -1850,9 +1824,6 @@ class DimConstraints:
                         self._dcp.symbol_to_source[tmp] = [ConstantSource(tmp_name)]
                         r = try_solve(sympy.Eq(base, divisor * tmp), s)
                         self._dynamic_results.add(self._dcp.doprint(sympy.Eq(s, r[1])))
-                    elif not _disable_forced_specializations:
-                        self._force_specialization(s)
-                        self._univariate_inequalities.pop(s, None)
 
         # remaining symbols have only pure inequalities (no equalities)
         for s, exprs in self._univariate_inequalities.items():
@@ -1875,11 +1846,6 @@ class DimConstraints:
         symbolic_equivalences = self._symbolic_equivalences
         self._symbolic_equivalences = []
         for source, expr in symbolic_equivalences:
-            if not _disable_forced_specializations and not _is_supported_equivalence(expr):
-                for s in expr.free_symbols:
-                    self._force_specialization(s)
-                    sexpr = self._dcp._print_Symbol(s)
-                    self._dynamic_results = {r for r in self._dynamic_results if sexpr not in r}
             self.add_equality(source, expr.xreplace(self._substitutions))
 
         # remaining symbolic equivalences become dynamic equality constraints
@@ -2364,8 +2330,6 @@ class ShapeEnvSettings:
     assume_static_by_default: bool
     specialize_zero_one: bool
     duck_shape: bool
-    prefer_deferred_runtime_asserts_over_guards: bool
-    allow_complex_guards_as_runtime_asserts: bool
 
 
 class ShapeEnv:
@@ -2477,8 +2441,6 @@ class ShapeEnv:
             assume_static_by_default=assume_static_by_default,
             specialize_zero_one=specialize_zero_one,
             duck_shape=duck_shape,
-            prefer_deferred_runtime_asserts_over_guards=prefer_deferred_runtime_asserts_over_guards,
-            allow_complex_guards_as_runtime_asserts=allow_complex_guards_as_runtime_asserts,
         )
 
         self.guards: List[ShapeGuard] = []
@@ -2541,6 +2503,8 @@ class ShapeEnv:
         #     latest key, an assert will only show up at the moment when
         #     we can actually codegen it.
         self.deferred_runtime_asserts: Dict[sympy.Symbol, List[RuntimeAssert]] = {}
+        self.prefer_deferred_runtime_asserts_over_guards = prefer_deferred_runtime_asserts_over_guards
+        self.allow_complex_guards_as_runtime_asserts = allow_complex_guards_as_runtime_asserts
         # This exists so we can efficiently invalidate the cache (it's used as
         # part of the cache key); otherwise we'd have to iterate through
         # deferred_runtime_asserts to compute its length
@@ -2659,14 +2623,6 @@ class ShapeEnv:
     @property
     def duck_shape(self):
         return self.settings.duck_shape
-
-    @property
-    def prefer_deferred_runtime_asserts_over_guards(self):
-        return self.settings.prefer_deferred_runtime_asserts_over_guards
-
-    @property
-    def allow_complex_guards_as_runtime_asserts(self):
-        return self.settings.allow_complex_guards_as_runtime_asserts
 
     def check_equal(self, other: "ShapeEnv") -> None:
         """Compare another ShapeEnv for equivalence
@@ -2893,6 +2849,7 @@ class ShapeEnv:
         we know statically is already True but we are checking it again in a way
         that is not clearly dischargeable.
         """
+        self.prefer_deferred_runtime_asserts_over_guards = False
         self.runtime_asserts_frozen = True
 
     def _create_symbol_for_source(self, source: Source) -> Optional[sympy.Symbol]:
@@ -4122,6 +4079,17 @@ class ShapeEnv:
             if self._maybe_evaluate_static(guard.expr, axioms=()) is not None:
                 continue
             issue_guard(guard)
+
+        # Because there are guards that export's constraint solver can suggest good fixes for, that we may have
+        # deferred as runtime asserts, and that produce_guards() alone won't do anything with (e.g. divisiblity guards),
+        # we want to send runtime asserts to export's constraint solver too. These will still stay in the graph as asserts,
+        # but export's constraint solver can decide whether to do anything with them (i.e. raise an error and provide
+        # suggested fixes, or decide it's out of scope and leave as a runtime assert in the graph).
+        for ra in self.deferred_runtime_asserts.get(None, []):
+            if self._maybe_evaluate_static(ra.expr, axioms=()) is not None:
+                continue
+            expr = self.simplify(ra.expr)
+            self.dim_constraints.add(expr)
 
         # 3. Every symbol must be within its value range (this handles 0/1
         # specialization too).

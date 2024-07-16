@@ -166,7 +166,7 @@ def make_fake_inputs(
             shape_env=ShapeEnv(
                 tracked_fakes=[],
                 co_fields=co_fields,
-                prefer_deferred_runtime_asserts_over_guards=allow_complex_guards_as_runtime_asserts,
+                prefer_deferred_runtime_asserts_over_guards=True,
                 allow_complex_guards_as_runtime_asserts=allow_complex_guards_as_runtime_asserts,
             ),
             allow_non_fake_inputs=True,
@@ -176,7 +176,7 @@ def make_fake_inputs(
         fake_mode = FakeTensorMode(
             shape_env=ShapeEnv(
                 tracked_fakes=[],
-                prefer_deferred_runtime_asserts_over_guards=allow_complex_guards_as_runtime_asserts,
+                prefer_deferred_runtime_asserts_over_guards=True,
                 allow_complex_guards_as_runtime_asserts=allow_complex_guards_as_runtime_asserts,
             ),
             allow_non_fake_inputs=True,
