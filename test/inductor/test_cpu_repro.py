@@ -2461,7 +2461,7 @@ class CPUReproTests(TestCase):
                 vec_checker.itervars = itervars
                 vec_checker.ranges = ranges
                 InterpreterShim(_graph, submodules).run(V.get_ops_handler())
-                self.assertFalse(vec_checker.simd_vec)
+                self.assertTrue(vec_checker.simd_vec)
 
             # Most inner loop variable irrevalant but min value is greater than
             # the min value of INT32
@@ -2476,7 +2476,7 @@ class CPUReproTests(TestCase):
                 vec_checker.itervars = itervars
                 vec_checker.ranges = ranges
                 InterpreterShim(_graph, submodules).run(V.get_ops_handler())
-                self.assertFalse(vec_checker.simd_vec)
+                self.assertTrue(vec_checker.simd_vec)
 
     @requires_vectorization
     @patch("torch.cuda.is_available", lambda: False)
@@ -3847,7 +3847,12 @@ class CPUReproTests(TestCase):
         _, code = run_and_get_cpp_code(opt_fn, x)
         FileCheck().check_count(
             "return at::vec::VectorizedN<int64_t,2>::loadu(tmpbuf.data(),",
-            4,
+            2,
+            exactly=True,
+        ).run(code)
+        FileCheck().check_count(
+            "return at::vec::Vectorized<int32_t>::loadu(tmpbuf.data(),",
+            2,
             exactly=True,
         ).run(code)
 
