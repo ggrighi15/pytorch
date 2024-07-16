@@ -98,7 +98,7 @@ def _schedule_for_comm(
     name_to_snode = {}
     scores_0, scores_1, scores_2 = {}, {}, {}
     for idx, snode in enumerate(snodes):
-        for name in snode.get_names():
+        for name in snode.get_buffer_names():
             name_to_snode[name] = snode
             scores_0[name] = sys.maxsize
             scores_1[name] = 0
@@ -225,9 +225,14 @@ def decide_global_ordering_of_comms(nodes: List[BaseSchedulerNode]):
     TODO: Come up with a better approach
     """
     comm_nodes = [n for n in nodes if is_collective(n.node)]
+
+    def item(x: Set[str]) -> str:
+        assert len(x) == 1
+        return next(iter(x))
+
     for i in range(1, len(comm_nodes)):
         # Enforce ordering by making previous comm a `WeakDep` dependency of the next comm
-        comm_nodes[i].add_fake_dep(WeakDep(comm_nodes[i - 1].get_name()))
+        comm_nodes[i].add_fake_dep(WeakDep(item(comm_nodes[i - 1].get_buffer_names())))
 
 
 def estimate_op_runtime(snode: BaseSchedulerNode) -> float:
